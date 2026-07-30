@@ -19,7 +19,7 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(response)
+    print(response.answer)
 
 
 if __name__ == "__main__":
