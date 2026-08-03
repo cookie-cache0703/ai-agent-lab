@@ -17,7 +17,7 @@ class ToolRegistry:
     def specs(self) -> list[dict]:
         return [tool.to_openai_schema() for tool in self._tools.values()]
 
-    def dispatch(self, name: str, arguments: dict) -> str:
+    def dispatch(self, name: str, arguments: dict) -> str | dict:
         try:
             tool = self._tools[name]
         except KeyError:

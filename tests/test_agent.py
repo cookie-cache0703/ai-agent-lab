@@ -39,6 +39,19 @@ def _echo(args: _EchoArgs) -> str:
 echo_tool = Tool(name="echo", description="Echo text back", args_model=_EchoArgs, handler=_echo)
 
 
+class _NoArgs(BaseModel):
+    pass
+
+
+def _structured_result(_args: _NoArgs) -> dict:
+    return {"temperature_c": 22.5, "condition": "sunny"}
+
+
+structured_tool = Tool(
+    name="get_weather", description="Fake weather tool", args_model=_NoArgs, handler=_structured_result
+)
+
+
 def test_ask_returns_direct_answer_when_no_tool_call_needed():
     llm_client = MagicMock()
     llm_client.respond.return_value = _message_response("Paris")
@@ -67,6 +80,25 @@ def test_ask_executes_tool_call_and_returns_final_answer():
 
     second_call_history = llm_client.respond.call_args_list[1].args[0]
     assert {"type": "function_call_output", "call_id": "call_1", "output": "hi"} in second_call_history
+
+
+def test_ask_json_encodes_structured_tool_results_for_the_api_but_keeps_them_raw_in_trace():
+    llm_client = MagicMock()
+    llm_client.respond.side_effect = [
+        _function_call_response("get_weather", {}, call_id="call_1"),
+        _message_response("It's sunny and 22.5C"),
+    ]
+    registry = ToolRegistry()
+    registry.register(structured_tool)
+    agent = Agent(llm_client, registry)
+
+    agent.ask("what's the weather?")
+
+    second_call_history = llm_client.respond.call_args_list[1].args[0]
+    function_call_output = next(item for item in second_call_history if item.get("type") == "function_call_output")
+    assert function_call_output["output"] == json.dumps({"temperature_c": 22.5, "condition": "sunny"})
+
+    assert agent.trace[0]["result"] == {"temperature_c": 22.5, "condition": "sunny"}
 
 
 def test_ask_records_a_trace_entry_for_each_tool_call():

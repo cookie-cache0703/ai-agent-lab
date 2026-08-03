@@ -54,6 +54,7 @@ class Agent:
                 if self._on_tool_call is not None:
                     self._on_tool_call(record)
 
+                output = result if isinstance(result, str) else json.dumps(result)
                 self._history.append(
-                    {"type": "function_call_output", "call_id": call.call_id, "output": result}
+                    {"type": "function_call_output", "call_id": call.call_id, "output": output}
                 )

@@ -11,7 +11,7 @@ class Tool:
     name: str
     description: str
     args_model: type[BaseModel]
-    handler: Callable[[BaseModel], str]
+    handler: Callable[[BaseModel], str | dict]
 
     def to_openai_schema(self) -> dict:
         return {
@@ -21,5 +21,5 @@ class Tool:
             "parameters": self.args_model.model_json_schema(),
         }
 
-    def run(self, arguments: dict) -> str:
+    def run(self, arguments: dict) -> str | dict:
         return self.handler(self.args_model.model_validate(arguments))

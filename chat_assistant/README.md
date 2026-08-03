@@ -66,12 +66,19 @@ Two kinds of tools are wired up, and they plug in differently:
 
 - **Local (client-side) tools** live in `../tools/` (repo root, alongside
   this app). A `Tool` pairs a name/description/pydantic argument schema with
-  a handler function; `ToolRegistry` turns registered tools into the OpenAI
+  a handler function; the handler returns either a plain `str` or a
+  structured `dict`. `ToolRegistry` turns registered tools into the OpenAI
   function-tool schemas the model sees and dispatches calls back to the
-  matching handler, with the result fed back to the model. `time_tool.py`
-  (`get_current_time`) and `calculator_tool.py` (`calculator`, a safe
-  `ast`-based arithmetic evaluator — no `eval`) are the two examples. Add a
-  new one and register it in `main.py`'s `build_agent()`.
+  matching handler; `Agent` JSON-encodes `dict` results before sending them
+  back to the model (the API's tool-output field is a string) but keeps the
+  raw structured value in the trace. Examples: `time_tool.py`
+  (`get_current_time`), `calculator_tool.py` (`calculator`, a safe
+  `ast`-based arithmetic evaluator — no `eval`), and `weather_tool.py`
+  (`get_weather`, backed by the free Open-Meteo API — no key needed). On
+  failure, `get_weather` returns a structured `{"error": ..., "message":
+  ...}` dict instead of raising, so the model reads the failure back and can
+  explain it to the user instead of the turn crashing. Add a new tool and
+  register it in `main.py`'s `build_agent()`.
 - **Hosted tools** run on OpenAI's infrastructure — the model calls them and
   gets results back within the same API response, so there's no local
   handler or dispatch step. `main.py`'s `HOSTED_TOOLS` list currently

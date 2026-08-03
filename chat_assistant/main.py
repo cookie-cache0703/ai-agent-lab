@@ -14,6 +14,7 @@ from llm_client import LLMClient, LLMClientError
 from tools.calculator_tool import calculator_tool
 from tools.registry import ToolRegistry
 from tools.time_tool import get_current_time_tool
+from tools.weather_tool import get_weather_tool
 
 # OpenAI-hosted tools run server-side (no local handler/dispatch needed).
 HOSTED_TOOLS = [{"type": "web_search"}]
@@ -34,6 +35,7 @@ def build_agent(trace_file: Path | None = None) -> Agent:
     tools = ToolRegistry()
     tools.register(get_current_time_tool)
     tools.register(calculator_tool)
+    tools.register(get_weather_tool)
     return Agent(
         LLMClient(OPENAI_API_KEY),
         tools,
