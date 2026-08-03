@@ -39,6 +39,10 @@ You: What is the capital of France?
 The capital of France is Paris.
 You: What time is it right now?
 The current time is 2026-08-03T09:14:02.
+You: What's (18 * 7) + 3?
+That's 129.
+You: What's the latest news on the Mars rover?
+[answer grounded in a live web search]
 You: exit
 ```
 
@@ -56,10 +60,37 @@ You: exit
 - `config.py` — loads the environment-specific `.env` file and exposes
   `OPENAI_API_KEY` plus an `LLMConfig` (`model`, `temperature`, `timeout`).
 
-Tool definitions live in `../tools/` (repo root, alongside this app): a
-`Tool` pairs a name/description/pydantic argument schema with a
-handler function, and `ToolRegistry` turns registered tools into the OpenAI
-function-tool schemas the model sees and dispatches calls back to the
-matching handler. `tools/time_tool.py` is a minimal example tool
-(`get_current_time`) — add new tools there and register them in
-`main.py`'s `build_agent()`.
+## Tools
+
+Two kinds of tools are wired up, and they plug in differently:
+
+- **Local (client-side) tools** live in `../tools/` (repo root, alongside
+  this app). A `Tool` pairs a name/description/pydantic argument schema with
+  a handler function; `ToolRegistry` turns registered tools into the OpenAI
+  function-tool schemas the model sees and dispatches calls back to the
+  matching handler, with the result fed back to the model. `time_tool.py`
+  (`get_current_time`) and `calculator_tool.py` (`calculator`, a safe
+  `ast`-based arithmetic evaluator — no `eval`) are the two examples. Add a
+  new one and register it in `main.py`'s `build_agent()`.
+- **Hosted tools** run on OpenAI's infrastructure — the model calls them and
+  gets results back within the same API response, so there's no local
+  handler or dispatch step. `main.py`'s `HOSTED_TOOLS` list currently
+  enables `web_search`; `Agent` merges these specs in alongside the
+  registry's before every model call.
+
+## Tool call trace
+
+Every locally-dispatched tool call (not hosted ones, since those don't expose
+per-call arguments/latency) is recorded on `Agent.trace` as a dict:
+
+```json
+{"tool_name": "calculator", "arguments": {"expression": "18*7+3"}, "result": "129", "latency_ms": 4}
+```
+
+By default each record is printed to stderr as it happens (prefixed with
+`[tool call]`). Pass `--trace-file path/to/trace.jsonl` to also append every
+record there, one JSON object per line:
+
+```bash
+python main.py --trace-file trace.jsonl
+```
