@@ -3,13 +3,9 @@
 import time
 
 from openai import APIConnectionError, AuthenticationError, OpenAI, OpenAIError, RateLimitError
-from pydantic import BaseModel
+from openai.types.responses import Response
 
 from config import config
-
-
-class Answer(BaseModel):
-    answer: str
 
 
 class LLMClientError(Exception):
@@ -18,19 +14,18 @@ class LLMClientError(Exception):
 
 class LLMClient:
     def __init__(self, api_key: str) -> None:
-        # max_retries=0: retries for transient errors are handled explicitly in generate().
+        # max_retries=0: retries for transient errors are handled explicitly in respond().
         self.client = OpenAI(api_key=api_key, max_retries=0)
         self.model = config.model
 
-    def generate(self, prompt: str, instructions: str | None = None) -> Answer:
+    def respond(self, input_items: list[dict], tools: list[dict]) -> Response:
         for attempt in range(1, config.max_retries + 1):
             try:
-                response = self.client.with_options(timeout=config.timeout).responses.parse(
+                return self.client.with_options(timeout=config.timeout).responses.create(
                     model=self.model,
-                    instructions=instructions,
-                    input=prompt,
+                    input=input_items,
+                    tools=tools,
                     temperature=config.temperature,
-                    text_format=Answer,
                 )
             except AuthenticationError:
                 raise LLMClientError("invalid OpenAI API key.") from None
@@ -41,5 +36,3 @@ class LLMClient:
                 continue
             except OpenAIError as e:
                 raise LLMClientError(f"OpenAI API request failed: {e}") from None
-
-            return response.output_parsed

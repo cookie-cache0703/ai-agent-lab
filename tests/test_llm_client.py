@@ -5,7 +5,7 @@ import pytest
 from openai import AuthenticationError, BadRequestError, RateLimitError, APIConnectionError
 
 from config import LLMConfig
-from llm_client import Answer, LLMClient, LLMClientError
+from llm_client import LLMClient, LLMClientError
 
 
 def _request() -> httpx.Request:
@@ -34,8 +34,8 @@ def _bad_request_error(msg: str = "bad request") -> BadRequestError:
 def _make_client() -> tuple[LLMClient, MagicMock]:
     client = LLMClient("test-key")
     client.client = MagicMock()
-    mock_parse = client.client.with_options.return_value.responses.parse
-    return client, mock_parse
+    mock_create = client.client.with_options.return_value.responses.create
+    return client, mock_create
 
 
 @pytest.fixture(autouse=True)
@@ -45,71 +45,80 @@ def no_sleep(monkeypatch):
     monkeypatch.setattr(llm_client.time, "sleep", lambda _seconds: None)
 
 
-def test_generate_returns_parsed_answer_on_success():
-    client, mock_parse = _make_client()
-    mock_parse.return_value = MagicMock(output_parsed=Answer(answer="Paris"))
+def test_respond_returns_response_on_success():
+    client, mock_create = _make_client()
+    expected = MagicMock(output_text="Paris")
+    mock_create.return_value = expected
 
-    result = client.generate("What is the capital of France?")
+    result = client.respond([{"role": "user", "content": "hi"}], tools=[])
 
-    assert result == Answer(answer="Paris")
-    assert mock_parse.call_count == 1
+    assert result is expected
+    assert mock_create.call_count == 1
 
 
-def test_generate_raises_on_authentication_error_without_retrying():
-    client, mock_parse = _make_client()
-    mock_parse.side_effect = _auth_error()
+def test_respond_passes_input_and_tools_through():
+    client, mock_create = _make_client()
+    mock_create.return_value = MagicMock(output_text="Paris")
+    input_items = [{"role": "user", "content": "hi"}]
+    tools = [{"type": "function", "name": "get_current_time"}]
+
+    client.respond(input_items, tools)
+
+    _, kwargs = mock_create.call_args
+    assert kwargs["input"] == input_items
+    assert kwargs["tools"] == tools
+
+
+def test_respond_raises_on_authentication_error_without_retrying():
+    client, mock_create = _make_client()
+    mock_create.side_effect = _auth_error()
 
     with pytest.raises(LLMClientError, match="invalid OpenAI API key"):
-        client.generate("hi")
+        client.respond([], tools=[])
 
-    assert mock_parse.call_count == 1
-
-
-def test_generate_retries_rate_limit_then_succeeds():
-    client, mock_parse = _make_client()
-    mock_parse.side_effect = [
-        _rate_limit_error(),
-        _rate_limit_error(),
-        MagicMock(output_parsed=Answer(answer="Paris")),
-    ]
-
-    result = client.generate("hi")
-
-    assert result == Answer(answer="Paris")
-    assert mock_parse.call_count == 3
+    assert mock_create.call_count == 1
 
 
-def test_generate_retries_connection_error_then_succeeds():
-    client, mock_parse = _make_client()
-    mock_parse.side_effect = [
-        _connection_error(),
-        MagicMock(output_parsed=Answer(answer="Paris")),
-    ]
+def test_respond_retries_rate_limit_then_succeeds():
+    client, mock_create = _make_client()
+    expected = MagicMock(output_text="Paris")
+    mock_create.side_effect = [_rate_limit_error(), _rate_limit_error(), expected]
 
-    result = client.generate("hi")
+    result = client.respond([], tools=[])
 
-    assert result == Answer(answer="Paris")
-    assert mock_parse.call_count == 2
+    assert result is expected
+    assert mock_create.call_count == 3
 
 
-def test_generate_raises_after_exhausting_retries():
-    client, mock_parse = _make_client()
-    mock_parse.side_effect = _rate_limit_error("still limited")
+def test_respond_retries_connection_error_then_succeeds():
+    client, mock_create = _make_client()
+    expected = MagicMock(output_text="Paris")
+    mock_create.side_effect = [_connection_error(), expected]
+
+    result = client.respond([], tools=[])
+
+    assert result is expected
+    assert mock_create.call_count == 2
+
+
+def test_respond_raises_after_exhausting_retries():
+    client, mock_create = _make_client()
+    mock_create.side_effect = _rate_limit_error("still limited")
 
     with pytest.raises(LLMClientError, match="request failed after 3 attempts"):
-        client.generate("hi")
+        client.respond([], tools=[])
 
-    assert mock_parse.call_count == 3
+    assert mock_create.call_count == 3
 
 
-def test_generate_raises_on_other_openai_error_without_retrying():
-    client, mock_parse = _make_client()
-    mock_parse.side_effect = _bad_request_error()
+def test_respond_raises_on_other_openai_error_without_retrying():
+    client, mock_create = _make_client()
+    mock_create.side_effect = _bad_request_error()
 
     with pytest.raises(LLMClientError, match="OpenAI API request failed"):
-        client.generate("hi")
+        client.respond([], tools=[])
 
-    assert mock_parse.call_count == 1
+    assert mock_create.call_count == 1
 
 
 def test_llm_config_rejects_max_retries_below_one():
