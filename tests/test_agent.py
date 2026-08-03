@@ -3,7 +3,9 @@ from unittest.mock import MagicMock
 
 from pydantic import BaseModel
 
-from agent import Agent
+import pytest
+
+from agent import Agent, AgentLimitError
 from tools.base import Tool
 from tools.registry import ToolRegistry
 
@@ -25,6 +27,11 @@ def _message_response(text: str) -> MagicMock:
 
 def _function_call_response(name: str, arguments: dict, call_id: str = "call_1") -> MagicMock:
     item = _FakeOutputItem("function_call", name=name, arguments=json.dumps(arguments), call_id=call_id)
+    return MagicMock(output=[item], output_text="")
+
+
+def _raw_function_call_response(name: str, arguments: str, call_id: str = "call_1") -> MagicMock:
+    item = _FakeOutputItem("function_call", name=name, arguments=arguments, call_id=call_id)
     return MagicMock(output=[item], output_text="")
 
 
@@ -186,3 +193,107 @@ def test_history_persists_across_ask_calls():
     assert final_history[0] == {"role": "user", "content": "What is the capital of France?"}
     assert final_history[2] == {"role": "user", "content": "Why?"}
     assert len(final_history) == 4
+
+
+@pytest.mark.parametrize(
+    ("first_response", "expected_code"),
+    [
+        (_raw_function_call_response("echo", "not-json"), "invalid_arguments"),
+        (_function_call_response("echo", {}), "invalid_arguments"),
+        (_function_call_response("missing", {}), "unknown_tool"),
+    ],
+)
+def test_ask_returns_tool_call_errors_to_the_model(first_response, expected_code):
+    llm_client = MagicMock()
+    llm_client.respond.side_effect = [first_response, _message_response("I could not use that tool.")]
+    registry = ToolRegistry()
+    registry.register(echo_tool)
+    agent = Agent(llm_client, registry)
+
+    result = agent.ask("use a tool")
+
+    assert result == "I could not use that tool."
+    second_call_history = llm_client.respond.call_args_list[1].args[0]
+    output_item = next(item for item in second_call_history if item.get("type") == "function_call_output")
+    assert json.loads(output_item["output"])["error"]["code"] == expected_code
+    assert agent.trace[0]["error"]["code"] == expected_code
+
+
+def test_ask_returns_handler_failure_to_the_model_without_exposing_exception():
+    def fail(_args: _NoArgs) -> str:
+        raise RuntimeError("secret backend detail")
+
+    failing_tool = Tool(name="fail", description="Fail", args_model=_NoArgs, handler=fail)
+    registry = ToolRegistry()
+    registry.register(failing_tool)
+    llm_client = MagicMock()
+    llm_client.respond.side_effect = [
+        _function_call_response("fail", {}),
+        _message_response("The tool failed."),
+    ]
+    agent = Agent(llm_client, registry)
+
+    assert agent.ask("fail") == "The tool failed."
+    output = next(
+        item["output"]
+        for item in llm_client.respond.call_args_list[1].args[0]
+        if item.get("type") == "function_call_output"
+    )
+    assert json.loads(output)["error"]["code"] == "tool_execution_failed"
+    assert "secret backend detail" not in output
+
+
+def test_trace_callback_failure_does_not_leave_tool_call_unresolved():
+    llm_client = MagicMock()
+    llm_client.respond.side_effect = [
+        _function_call_response("echo", {"text": "hi"}),
+        _message_response("hi"),
+    ]
+    registry = ToolRegistry()
+    registry.register(echo_tool)
+    agent = Agent(llm_client, registry, on_tool_call=MagicMock(side_effect=OSError("disk full")))
+
+    assert agent.ask("echo hi") == "hi"
+    assert any(
+        item.get("type") == "function_call_output"
+        for item in llm_client.respond.call_args_list[1].args[0]
+    )
+
+
+def test_ask_stops_after_maximum_tool_rounds_and_resolves_last_call():
+    llm_client = MagicMock()
+    llm_client.respond.side_effect = [
+        _function_call_response("echo", {"text": "one"}, call_id="call_1"),
+        _function_call_response("echo", {"text": "two"}, call_id="call_2"),
+    ]
+    registry = ToolRegistry()
+    registry.register(echo_tool)
+    agent = Agent(llm_client, registry, max_tool_rounds=1)
+
+    with pytest.raises(AgentLimitError, match="tool rounds"):
+        agent.ask("loop")
+
+    final_item = llm_client.respond.call_args_list[1].args[0][-1]
+    assert final_item["call_id"] == "call_2"
+    assert json.loads(final_item["output"])["error"]["code"] == "agent_limit_exceeded"
+
+
+def test_ask_stops_before_exceeding_maximum_tool_calls():
+    llm_client = MagicMock()
+    first = MagicMock(
+        output=[
+            _FakeOutputItem("function_call", name="echo", arguments='{"text":"one"}', call_id="call_1"),
+            _FakeOutputItem("function_call", name="echo", arguments='{"text":"two"}', call_id="call_2"),
+        ],
+        output_text="",
+    )
+    llm_client.respond.return_value = first
+    registry = ToolRegistry()
+    registry.register(echo_tool)
+    agent = Agent(llm_client, registry, max_tool_calls=1)
+
+    with pytest.raises(AgentLimitError, match="tool calls"):
+        agent.ask("call twice")
+
+    assert agent.trace == []
+    assert [item["call_id"] for item in llm_client.respond.call_args.args[0][-2:]] == ["call_1", "call_2"]

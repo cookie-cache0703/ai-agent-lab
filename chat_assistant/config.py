@@ -19,10 +19,19 @@ class LLMConfig:
     timeout: int = 60
     max_retries: int = 3
     retry_backoff_seconds: float = 1.0
+    max_tool_rounds: int = 8
+    max_tool_calls: int = 32
+    max_turn_seconds: float = 120.0
 
     def __post_init__(self) -> None:
         if self.max_retries < 1:
             raise ValueError("max_retries must be >= 1")
+        if self.max_tool_rounds < 1:
+            raise ValueError("max_tool_rounds must be >= 1")
+        if self.max_tool_calls < 1:
+            raise ValueError("max_tool_calls must be >= 1")
+        if self.max_turn_seconds <= 0:
+            raise ValueError("max_turn_seconds must be > 0")
 
 
 config = LLMConfig()

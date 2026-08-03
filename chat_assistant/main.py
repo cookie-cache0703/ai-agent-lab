@@ -8,7 +8,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent import Agent
+from agent import Agent, AgentLimitError
 from config import OPENAI_API_KEY
 from llm_client import LLMClient, LLMClientError
 from tools.calculator_tool import calculator_tool
@@ -69,7 +69,7 @@ def main() -> None:
 
         try:
             print(agent.ask(question))
-        except LLMClientError as e:
+        except (LLMClientError, AgentLimitError) as e:
             print(f"Error: {e}", file=sys.stderr)
 
 

@@ -124,3 +124,16 @@ def test_respond_raises_on_other_openai_error_without_retrying():
 def test_llm_config_rejects_max_retries_below_one():
     with pytest.raises(ValueError, match="max_retries must be >= 1"):
         LLMConfig(max_retries=0)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_tool_rounds": 0}, "max_tool_rounds must be >= 1"),
+        ({"max_tool_calls": 0}, "max_tool_calls must be >= 1"),
+        ({"max_turn_seconds": 0}, "max_turn_seconds must be > 0"),
+    ],
+)
+def test_llm_config_rejects_invalid_agent_limits(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        LLMConfig(**kwargs)
