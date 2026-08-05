@@ -13,6 +13,8 @@ from config import OPENAI_API_KEY
 from llm_client import LLMClient, LLMClientError
 from tools.calculator_tool import calculator_tool
 from tools.registry import ToolRegistry
+from tools.search_mock_jobs_tool import search_mock_jobs_tool
+from tools.summarize_text_tool import summarize_text_tool
 from tools.time_tool import get_current_time_tool
 from tools.weather_tool import get_weather_tool
 
@@ -36,6 +38,8 @@ def build_agent(trace_file: Path | None = None) -> Agent:
     tools.register(get_current_time_tool)
     tools.register(calculator_tool)
     tools.register(get_weather_tool)
+    tools.register(search_mock_jobs_tool)
+    tools.register(summarize_text_tool)
     return Agent(
         LLMClient(OPENAI_API_KEY),
         tools,

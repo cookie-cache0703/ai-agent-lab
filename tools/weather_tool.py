@@ -9,7 +9,7 @@ failure to the user rather than the whole turn crashing.
 import httpx
 from pydantic import BaseModel
 
-from tools.base import Tool
+from tools.base import Tool, tool_error
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -18,10 +18,6 @@ REQUEST_TIMEOUT_SECONDS = 10
 
 class GetWeatherArgs(BaseModel):
     city: str
-
-
-def _error(code: str, message: str) -> dict:
-    return {"error": code, "message": message}
 
 
 def _get_weather(args: GetWeatherArgs) -> dict:
@@ -33,11 +29,11 @@ def _get_weather(args: GetWeatherArgs) -> dict:
         )
         geocode_response.raise_for_status()
     except httpx.HTTPError as e:
-        return _error("geocoding_request_failed", f"Could not look up {args.city!r}: {e}")
+        return tool_error("geocoding_request_failed", f"Could not look up {args.city!r}: {e}")
 
     results = geocode_response.json().get("results")
     if not results:
-        return _error("city_not_found", f"No location found matching {args.city!r}.")
+        return tool_error("city_not_found", f"No location found matching {args.city!r}.")
 
     location = results[0]
 
@@ -53,11 +49,11 @@ def _get_weather(args: GetWeatherArgs) -> dict:
         )
         forecast_response.raise_for_status()
     except httpx.HTTPError as e:
-        return _error("forecast_request_failed", f"Could not fetch weather for {args.city!r}: {e}")
+        return tool_error("forecast_request_failed", f"Could not fetch weather for {args.city!r}: {e}")
 
     current = forecast_response.json().get("current_weather")
     if not current:
-        return _error("forecast_unavailable", f"No current weather data available for {args.city!r}.")
+        return tool_error("forecast_unavailable", f"No current weather data available for {args.city!r}.")
 
     return {
         "city": location.get("name", args.city),

@@ -73,12 +73,16 @@ Two kinds of tools are wired up, and they plug in differently:
   back to the model (the API's tool-output field is a string) but keeps the
   raw structured value in the trace. Examples: `time_tool.py`
   (`get_current_time`), `calculator_tool.py` (`calculator`, a safe
-  `ast`-based arithmetic evaluator — no `eval`), and `weather_tool.py`
-  (`get_weather`, backed by the free Open-Meteo API — no key needed). On
-  failure, `get_weather` returns a structured `{"error": ..., "message":
-  ...}` dict instead of raising, so the model reads the failure back and can
-  explain it to the user instead of the turn crashing. Add a new tool and
-  register it in `main.py`'s `build_agent()`.
+  `ast`-based arithmetic evaluator — no `eval`), `weather_tool.py`
+  (`get_weather`, backed by the free Open-Meteo API — no key needed),
+  `search_mock_jobs_tool.py` (`search_mock_jobs`, deterministic fabricated
+  listings — a stand-in for a real job-search API), and
+  `summarize_text_tool.py` (`summarize_text`, an offline frequency-based
+  extractive summarizer — no LLM call from inside a tool). On failure,
+  `get_weather` and `search_mock_jobs` return a structured `{"error": ...,
+  "message": ...}` dict instead of raising, so the model reads the failure
+  back and can explain it to the user instead of the turn crashing. Add a
+  new tool and register it in `main.py`'s `build_agent()`.
 - **Hosted tools** run on OpenAI's infrastructure — the model calls them and
   gets results back within the same API response, so there's no local
   handler or dispatch step. `main.py`'s `HOSTED_TOOLS` list currently

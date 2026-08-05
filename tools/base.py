@@ -23,3 +23,8 @@ class Tool:
 
     def run(self, arguments: dict) -> str | dict:
         return self.handler(self.args_model.model_validate(arguments))
+
+
+def tool_error(code: str, message: str) -> dict:
+    """Structured error a handler can return (not raise) so the model can explain the failure."""
+    return {"error": code, "message": message}
