@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from unittest.mock import MagicMock
 
 from pydantic import BaseModel
@@ -241,6 +242,35 @@ def test_ask_returns_handler_failure_to_the_model_without_exposing_exception():
     )
     assert json.loads(output)["error"]["code"] == "tool_execution_failed"
     assert "secret backend detail" not in output
+
+
+def test_ask_returns_serialization_failure_to_the_model_without_crashing():
+    def return_datetime(_args: _NoArgs) -> dict:
+        return {"checked_at": datetime(2026, 8, 5, 12, 0)}
+
+    unserializable_tool = Tool(
+        name="unserializable",
+        description="Return a value that standard JSON cannot encode",
+        args_model=_NoArgs,
+        handler=return_datetime,
+    )
+    registry = ToolRegistry()
+    registry.register(unserializable_tool)
+    llm_client = MagicMock()
+    llm_client.respond.side_effect = [
+        _function_call_response("unserializable", {}),
+        _message_response("The tool result could not be processed."),
+    ]
+    agent = Agent(llm_client, registry)
+
+    assert agent.ask("use the tool") == "The tool result could not be processed."
+    output = next(
+        item["output"]
+        for item in llm_client.respond.call_args_list[1].args[0]
+        if item.get("type") == "function_call_output"
+    )
+    assert json.loads(output)["error"]["code"] == "tool_execution_failed"
+    assert agent.trace[0]["error"]["code"] == "tool_execution_failed"
 
 
 def test_trace_callback_failure_does_not_leave_tool_call_unresolved():

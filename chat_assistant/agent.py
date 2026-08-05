@@ -2,7 +2,7 @@
 
 import json
 import time
-from typing import Callable
+from typing import Any, Callable
 
 from pydantic import ValidationError
 
@@ -66,7 +66,7 @@ class Agent:
 
             for call in function_calls:
                 start = time.monotonic()
-                arguments, result, error = self._execute_tool_call(call.name, call.arguments)
+                arguments, result, output, error = self._execute_tool_call(call.name, call.arguments)
                 latency_ms = round((time.monotonic() - start) * 1000)
                 tool_calls_made += 1
 
@@ -87,22 +87,26 @@ class Agent:
                         # returned to the model and leave the call unresolved.
                         pass
 
-                output = result if isinstance(result, str) else json.dumps(result)
                 self._history.append(
                     {"type": "function_call_output", "call_id": call.call_id, "output": output}
                 )
 
-    def _execute_tool_call(self, name: str, raw_arguments: str) -> tuple[dict, str | dict, dict | None]:
+    def _execute_tool_call(
+        self, name: str, raw_arguments: str
+    ) -> tuple[dict, Any, str, dict | None]:
         try:
             arguments = json.loads(raw_arguments)
             if not isinstance(arguments, dict):
                 raise ValueError("tool arguments must be a JSON object")
         except (json.JSONDecodeError, ValueError) as exc:
             error = {"code": "invalid_arguments", "message": str(exc), "retryable": True}
-            return {}, {"error": error}, error
+            result = {"error": error}
+            return {}, result, json.dumps(result), error
 
         try:
-            return arguments, self._tools.dispatch(name, arguments), None
+            result = self._tools.dispatch(name, arguments)
+            output = result if isinstance(result, str) else json.dumps(result)
+            return arguments, result, output, None
         except ValidationError as exc:
             error = {
                 "code": "invalid_arguments",
@@ -113,9 +117,11 @@ class Agent:
         except ToolNotFoundError:
             error = {"code": "unknown_tool", "message": f"Tool {name!r} is not available.", "retryable": False}
         except Exception:
-            # Do not expose handler exception details to either the model or traces.
+            # Do not expose handler or serialization exception details to the
+            # model or traces.
             error = {"code": "tool_execution_failed", "message": "The tool failed while executing.", "retryable": True}
-        return arguments, {"error": error}, error
+        result = {"error": error}
+        return arguments, result, json.dumps(result), error
 
     def _append_limit_outputs(self, calls: list, message: str) -> None:
         output = json.dumps(
